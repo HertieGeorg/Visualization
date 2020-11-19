@@ -1,0 +1,273 @@
+---
+title: "Assignment 9. Data visualization"
+author: "YOUR NAME"
+date: "11/11/2020"
+output: html_document
+---
+
+```{r, message = FALSE, warning = FALSE}
+
+library(tidyverse)
+library(lubridate)
+library(legislatoR)
+library(RColorBrewer)
+library(waffle)
+library(ggthemes)
+library(legislatoR)
+library(dplyr)
+library(forcats)
+library(ggplot2)
+library(hrbrthemes)
+library(jtools)
+library(stargazer)
+library(ggstance)
+
+```
+
+
+<br>
+
+## 1. Fetching data on members of the 115th United States Congress
+
+The `legislatoR` package (https://github.com/saschagobel/legislatoR) provides access to the Comparative Legislators Database (CLD). The CLD includes political, sociodemographic, career, online presence, public attention, and visual information (organized in separate tables, very similar to a proper database structure) for over 45,000 contemporary and historical politicians from ten countries.
+
+Install the package (either from CRAN or GitHub) and use it to compile the following data into one dataset:
+
+a) The political data for the 115th session of the US House of Representatives
+b) The data on daily user traffic on individual Wikipedia biographies (use it to compute the average number of daily page views per representative between January 3, 2017 and January 3, 2019 and match the variable to the dataset)
+c) The information on the total number of sessions served by representative (compute it by counting the number of entries in the political table when grouped by representative).
+
+```{r}
+# YOUR CODE HERE
+
+
+# a) 
+
+# Get core data 
+US_House <- get_core(legislature = "usa_house")
+
+# Get political data  
+US_Sessions <- get_political(legislature = "usa_house") 
+
+# Filter for the 115th session
+US_115 <- US_Sessions %>% filter(session == 115)
+
+
+
+
+# b)
+
+# Get wikipedia traffic data 
+US_traffic <- get_traffic(legislature = "usa_house") 
+
+# Filter for time frame and calculate average number of daily page views
+US_daily <- US_traffic %>% 
+  filter(date >= "2017-01-03" & date <= "2019-01-03") %>% 
+  select(!date) %>% 
+  group_by(pageid) %>%
+  dplyr::summarize(Mean_DailyPageView = mean(traffic, na.rm=TRUE))
+
+
+
+
+# c) 
+
+US_Sessions_total <-  US_Sessions %>% group_by(pageid) %>% dplyr::summarize(Total_Sessions = n())
+
+# Alternatively: 
+#US_Sessions_total <-  US_Sessions %>% count(pageid) %>% rename(Total_Sessions = n)
+
+
+
+# Finally, compiling all into one dataset:
+
+Merged_Dataset <-  US_Sessions_total %>% 
+  inner_join(US_daily, by = NULL) %>% 
+  inner_join(US_115, by = NULL) 
+
+
+
+
+```
+
+<br> 
+
+## 2. Exploring the dataset
+
+Explore the dataset using visual means, following the guidelines of good visualization. Provide three different visualizations. One visualization is entirely up to you. The two others should give any two of the following:
+
+a) gender or ethnicity distribution by party (Democrat/Republican; ignore the others)
+b) age distribution by state in which the representative's district is located (limit to states with 10+ representatives)
+c) top 10 representatives according to average daily page views
+d) log mean page views vs. the number of sessions served
+
+Transform the variables if needed (e.g., categorize continuous variables, pool residual categories into one, etc.).
+
+```{r}
+
+
+#a) ethnicity distribution by party (Democrat/Republican)
+
+# Include gender, age, ethnicity data into the dataset 
+Merged_Dataset_Big <-  Merged_Dataset %>% inner_join(US_House, by = NULL) 
+
+
+# Democrats
+# Filter for Party and count total number of representatives by ethnicity 
+
+Prop_Ethicity_D <-  Merged_Dataset_Big %>% filter(party == "D") %>%  count(ethnicity) %>% rename(Total = n) %>% arrange(-Total) 
+Labels_D <- c("White", "Black","Hispanic", "Asian", "Islander")
+
+
+# Drawing a Waffle-Chart 
+
+val_names <- sprintf("%s (%s)", Labels_D, scales::percent(round(Prop_Ethicity_D$Total/sum(Prop_Ethicity_D$Total), 5)))
+names(Prop_Ethicity_D$Total) <- val_names
+
+waffle::waffle(Prop_Ethicity_D$Total, rows=8, size=0.5, 
+       title="Distribution of Ethnicites in the House: Democrats",
+      xlab="1 Square = 1 Representative")
+
+
+# Republicans
+# Filter for Party and count total number of representatives by ethnicity 
+
+Prop_Ethicity_R <-  Merged_Dataset_Big %>% filter(party == "R") %>%  count(ethnicity) %>% rename(Total = n) %>% arrange(-Total) 
+Labels_R <- c("White", "Hispanic", "Black", "Native", "Islander")
+
+# Drawing a Waffle-Chart 
+
+val_names <- sprintf("%s (%s)", Labels_R, scales::percent(round(Prop_Ethicity_R$Total/sum(Prop_Ethicity_R$Total), 5)))
+names(Prop_Ethicity_R$Total) <- val_names
+
+waffle::waffle(Prop_Ethicity_R$Total, rows=8, size=0.5, 
+       title ="Distribution of Ethnicites in the House: Republicans",
+      xlab="1 Square = 1 Representative")
+
+
+
+#c) top 10 representatives according to average daily page views
+
+Merged_Dataset_Arranged <- Merged_Dataset_Big %>% arrange(-Mean_DailyPageView) %>% select(Mean_DailyPageView, name, party)
+  
+Merged_Dataset_Top10 <- Merged_Dataset_Arranged[1:10,] 
+
+
+
+# Bar Chart 
+Merged_Dataset_Top10  %>%
+   mutate(name = fct_reorder(name, Mean_DailyPageView)) %>%
+  ggplot(  aes(x= Mean_DailyPageView, y= name, fill = party)) +
+    geom_bar(stat="identity", alpha=.6, width=.5) +
+    xlab("Number of average Daily Wikipedia-Page Views") +
+    ylab("Name of Representative") + 
+    labs(fill = "Party") +
+    theme_bw()
+
+  
+
+# Own Visualization: 
+
+Merged_Dataset_Big %>% filter(party == "R"| party == "D") %>% 
+  ggplot(aes(x= birth, y = Mean_DailyPageView, size = Total_Sessions, color= party)) + 
+    geom_point(alpha=0.6) +
+    scale_y_log10()+
+    theme_ipsum() +
+    xlab("Year of Birth") +
+    ylab("Average number of daily page views") + 
+    ggtitle("Relationship between Age, Nº of Sessions, Party and Views") +
+    labs(color='Party') +
+    labs(size='Nº of Sessions') 
+
+# The graph shows  the connection between the age, the numbers of sessions served and the party-membership with the average number of daily page views on a log scale
+# As we can see, older Republicans that served several sessions score the highest on the scale of average number of daily page views, but also several younger and less experienced democrats 
+
+
+
+
+
+```
+
+
+<br> 
+2
+## 3. Modeling page views
+
+Finally, model the log number of mean page views as a function of the following variables: 
+
+  - number of sessions served, 
+  - party membership (Democrat/Republican/Independent)
+  - key political position (a dummy which takes the value 1 if the representative is one of the following: speaker, majority/minority leader/whip)
+  - age
+  - gender
+  - ethnicity (white/non-white)
+
+A linear model is just fine. Present the results of your model in both a table and a coefficient plot!
+
+```{r}
+
+
+# Log of mean page views 
+Merged_Dataset_Big$Views  <- log(Merged_Dataset_Big$Mean_DailyPageView)
+
+# Transform ethnicity-variable into binary white/non-white variable 
+Merged_Dataset_Big$ethnicity_new <- ifelse(Merged_Dataset_Big$ethnicity == "white", "white", "non-white")
+
+
+# Sort party membership into 3 categories 
+Merged_Dataset_Big$party_R <- ifelse(Merged_Dataset_Big$party == "R", 1 , 0)
+Merged_Dataset_Big$party_D <- ifelse(Merged_Dataset_Big$party == "D", 1 , 0)
+# As everything that is not R or D, i.e. "independent", is perfectly determined by R and D, it is automatically incorporated as baseline
+
+
+# Age 
+
+# Only one member of the 115th congress has already died (2018-03-16, 2 years ago); I do not account for that in this model as the effect of the actual age at death compared to the hypothetical age nowadays is neglectable 
+
+
+
+Merged_Dataset_Big$YearBirth <- Merged_Dataset_Big$birth %>% 
+                                          as.character() %>% 
+                                           substr( 1, 4) %>% 
+                                            as.double()
+Merged_Dataset_Big$YearToday <- 2020
+
+Merged_Dataset_Big <- Merged_Dataset_Big %>% mutate(Age = YearToday - YearBirth)
+
+
+
+# Key political positions 
+Merged_Dataset_Big$keyPosition <- ifelse(Merged_Dataset_Big$house_speaker == T | Merged_Dataset_Big$house_majority_leader == T | Merged_Dataset_Big$house_majority_whip == T | Merged_Dataset_Big$house_minority_leader == T | Merged_Dataset_Big$house_minority_whip == T, "1", "0")
+
+
+
+# Linear Model 
+linear_model <- lm(Views ~ sex + Age + keyPosition + ethnicity_new + Total_Sessions + party_R + party_D, data = Merged_Dataset_Big)
+
+#CHANGE NAMES OF VARIABLES IN THE PLOTS!!
+#TO SOMETHING ABOUT THE AGE VARIABLE!!!
+
+own_labels =  c("Being Male", "Age", "Key Political Position", "Being White", "Total Nº Sessions", "Republicans", "Democrats")
+
+
+stargazer(linear_model,
+          title="Linear Model on Average Daily Page Views", 
+          covariate.labels = own_labels, 
+          type = "html",
+          out = "Table_1.html",
+          omit.stat=c("f", "ser"),
+          style = "default")
+
+
+# Coefficient Plots
+
+Labels = c("Democrats"= "party_D", "Republicans" = "party_R", "Total Nº Sessions" = "Total_Sessions", "Being Male" = "sexmale", "Age" = "Age", "Key Political Position" = "keyPosition1", "Being White" = "ethnicity_newwhite")
+
+jtools::plot_summs(linear_model , scale = TRUE,   plot.distributions = TRUE, coefs = Labels )
+
+plot_summs(linear_model, scale = TRUE, inner_ci_level = .90, coefs = Labels)
+
+
+
+```
+
